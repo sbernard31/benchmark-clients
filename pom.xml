@@ -9,7 +9,7 @@
 		<dependency>
 			<groupId>org.eclipse.leshan</groupId>
 			<artifactId>leshan-client-cf</artifactId>
-			<version>1.0.0-M7b</version>
+			<version>1.0.0-SNAPSHOT</version>
 		</dependency>
 
 		 <!-- runtime dependencies -->
