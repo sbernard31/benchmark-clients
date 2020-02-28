@@ -22,7 +22,7 @@ public class ClientsLauncher {
 	private CountDownLatch testEnd = new CountDownLatch(1);
 	private ScheduledExecutorService executor = Executors
 			.newSingleThreadScheduledExecutor(new NamedThreadFactory("Clients Launcher"));
-	private ScheduledExecutorService executorForClients = Executors.newScheduledThreadPool(1000,
+	private ScheduledExecutorService executorForClients = Executors.newScheduledThreadPool(400,
 			new NamedThreadFactory("coap+dtls connector"));
 	private int currentClientIndex = 0;
 
@@ -49,8 +49,7 @@ public class ClientsLauncher {
 	public void createClients() {
 		clients = new ArrayList<>(nbclients);
 		for (int i = 0; i < nbclients; i++) {
-			clients.add(new BenchTestLeshanClient(i, serverURI, testDurationInSeconds * 20, executorForClients));
-			//clients.add(new BenchTestLeshanClient(i, serverURI, testDurationInSeconds * 2, null));
+			clients.add(new BenchTestLeshanClient(i, serverURI, testDurationInSeconds, executorForClients));
 		}
 	}
 
@@ -60,7 +59,7 @@ public class ClientsLauncher {
 			@Override
 			public void run() {
 				for (BenchTestLeshanClient client : clients) {
-					client.destroy();
+					client.stop(false);
 				}
 				testEnd.countDown();
 			}
@@ -92,8 +91,8 @@ public class ClientsLauncher {
 
 	public void waitToEnd() throws InterruptedException {
 		testEnd.await();
-		for (int i = 1; i < nbclients; i++) {
-			clients.get(i).destroy();
+		for (int i = 0; i < nbclients; i++) {
+			clients.get(i).destroy(false);
 		}
 		executor.shutdown();
 	}
@@ -200,6 +199,8 @@ public class ClientsLauncher {
 		b.append(").\n");
 		b.append("=======================================\n");
 
+		executorForClients.shutdown();
+		
 		return b.toString();
 	}
 }
