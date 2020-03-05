@@ -1,206 +1,253 @@
 package org.eclipse.leshan.benchmark.client;
 
+import java.net.InetSocketAddress;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import org.eclipse.leshan.client.californium.LeshanClientBuilder;
+import org.eclipse.leshan.client.engine.DefaultRegistrationEngineFactory;
+import org.eclipse.leshan.util.Hex;
 import org.eclipse.leshan.util.NamedThreadFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.codahale.metrics.MetricFilter;
+import com.codahale.metrics.MetricRegistry;
+import com.codahale.metrics.Slf4jReporter;
+import com.codahale.metrics.Slf4jReporter.LoggingLevel;
+import com.codahale.metrics.graphite.Graphite;
+import com.codahale.metrics.graphite.GraphiteReporter;
 
 public class ClientsLauncher {
 
-	private int nbclients;
-	private int timeToRegistrerAllClientsInSeconds;
-	// private int nbRegistrationByMinutes;
-	private int nbUpdatesByMinutes;
-	private long testDurationInSeconds;
-	private String serverURI;
+	private static final Logger LOG = LoggerFactory.getLogger(BenchClient.class);
 
-	private List<BenchTestLeshanClient> clients;
+	// Configuration
+	private int nbclients = 1;
+	private Integer timeToStartAllClientInS;
+	// Could be null if communicationPeriodInSeconds is used
+	private Integer nbUpdatesByMinutes;
+	// Could be null if nbUpdatesByMinutes is used
+	private Integer communicationPeriodInSeconds;
+	// Could be null if test should never ends
+	private Long testDurationInSeconds;
+	// TRUE if device should bootstrap, FALSE if it should register without
+	// bootstrap
+	private boolean bootstrap = false;
+	private boolean reconnectOnUpdate = false;
+	private boolean resumeOnConnect = true;
+	// LWM2M bootstrap server or LWM2M server URL
+	private String serverURI;
+	private InetSocketAddress graphiteServerAddress;
+	private int graphitePollingPeriodInSec;
+	private String endpointPattern;
+	private String pskKeyPattern;
+	private String pskIdPattern;
+
+	// metric registry
+	private MetricRegistry registry = new MetricRegistry();
+
+	// Thread configuration
 	private CountDownLatch testEnd = new CountDownLatch(1);
 	private ScheduledExecutorService executor = Executors
 			.newSingleThreadScheduledExecutor(new NamedThreadFactory("Clients Launcher"));
 	private ScheduledExecutorService executorForClients = Executors.newScheduledThreadPool(400,
 			new NamedThreadFactory("coap+dtls connector"));
+
+	// Internal state
+	private List<BenchClient> clients;
 	private int currentClientIndex = 0;
+	private Slf4jReporter logReporter;
+
+	private Map<String, String> additionalAttributes;
 
 	public void setNbClients(int nbclients) {
 		this.nbclients = nbclients;
 	}
 
-	public void setTimeToRegistrerAllClientsInSeconds(int timeToRegistrerAllClientsInSeconds) {
-		this.timeToRegistrerAllClientsInSeconds = timeToRegistrerAllClientsInSeconds;
+	public void setTimeToStart(int timeToStartAllClientInSeconds) {
+		this.timeToStartAllClientInS = timeToStartAllClientInSeconds;
 	}
 
 	public void setNbUpdatesByMinutes(int nbUpdatesByMinutes) {
 		this.nbUpdatesByMinutes = nbUpdatesByMinutes;
+		this.communicationPeriodInSeconds = null;
+	}
+
+	public void setCommunicationPeriod(int communicationPeriodInSeconds) {
+		this.communicationPeriodInSeconds = communicationPeriodInSeconds;
+		this.nbUpdatesByMinutes = null;
 	}
 
 	public void setTestDurationInSeconds(long testDurationInSeconds) {
 		this.testDurationInSeconds = testDurationInSeconds;
 	}
 
+	public void setReconnectOnUpdate(boolean reconnectOnUpdate) {
+		this.reconnectOnUpdate = reconnectOnUpdate;
+	}
+
+	public void setResumeOnConnect(boolean resumeOnConnect) {
+		this.resumeOnConnect = resumeOnConnect;
+	}
+
+	public void setBootstrap(boolean bootstrap) {
+		this.bootstrap = bootstrap;
+	}
+
 	public void setServerURI(String serverURI) {
 		this.serverURI = serverURI;
 	}
 
+	public void setGraphiteServerAddress(InetSocketAddress graphiteServerAddress) {
+		this.graphiteServerAddress = graphiteServerAddress;
+	}
+
+	public void setGraphitePollingPeriod(int graphitePollingPeriodInSec) {
+		this.graphitePollingPeriodInSec = graphitePollingPeriodInSec;
+	}
+
+	public void setEndpointPattern(String endpointPattern) {
+		this.endpointPattern = endpointPattern;
+	}
+
+	public void setPskIdPattern(String pskIdPattern) {
+		this.pskIdPattern = pskIdPattern;
+	}
+
+	public void setPskKeyPattern(String pskKeyPattern) {
+		this.pskKeyPattern = pskKeyPattern;
+	}
+
+	public void setAdditionalAttributes(Map<String, String> additionalAttributes) {
+		this.additionalAttributes = additionalAttributes;
+	}
+
 	public void createClients() {
 		clients = new ArrayList<>(nbclients);
-		for (int i = 0; i < nbclients; i++) {
-			clients.add(new BenchTestLeshanClient(i, serverURI, testDurationInSeconds, executorForClients));
+		for (int i = 1; i <= nbclients; i++) {
+			clients.add(createClient(i));
 		}
 	}
 
+	public BenchClient createClient(int i) {
+		String endpoint = String.format(endpointPattern, i);
+		LeshanClientBuilder builder = new LeshanClientBuilder(endpoint);
+		if (additionalAttributes != null) {
+			HashMap<String, String> attrs = new HashMap<>();
+			for (Entry<String, String> entry : additionalAttributes.entrySet()) {
+				attrs.put(String.format(entry.getKey(), i), String.format(entry.getValue(), i));
+			}
+			builder.setAdditionalAttributes(attrs);
+		}
+		builder.setSharedExecutor(executorForClients);
+
+		// Configure Registration Engine
+		DefaultRegistrationEngineFactory engineFactory = new DefaultRegistrationEngineFactory();
+		if (communicationPeriodInSeconds != null)
+			engineFactory.setCommunicationPeriod(communicationPeriodInSeconds * 1000);
+		engineFactory.setRetryWaitingTimeInMs(30000);
+		engineFactory.setReconnectOnUpdate(reconnectOnUpdate);
+		engineFactory.setResumeOnConnect(resumeOnConnect);
+		builder.setRegistrationEngineFactory(engineFactory);
+
+		long lifetime = Math.max(testDurationInSeconds == null ? 0 : testDurationInSeconds, 300);
+		return new BenchClient(builder, serverURI, bootstrap, String.format(pskIdPattern, i),
+				Hex.decodeHex(String.format(pskKeyPattern, i).toCharArray()), lifetime, registry);
+	}
+
 	public void start() throws InterruptedException {
-		executor.schedule(new Runnable() {
+		logReporter = Slf4jReporter.forRegistry(registry).outputTo(LOG).withLoggingLevel(LoggingLevel.INFO)
+				.convertRatesTo(TimeUnit.SECONDS).convertDurationsTo(TimeUnit.MILLISECONDS).build();
 
-			@Override
-			public void run() {
-				for (BenchTestLeshanClient client : clients) {
-					client.stop(false);
-				}
-				testEnd.countDown();
-			}
-		}, testDurationInSeconds, TimeUnit.SECONDS);
-
-		clients.get(0).start();
-		if (nbclients > 1) {
-			int timeBetweenLaunch = timeToRegistrerAllClientsInSeconds / (nbclients - 1);
-			for (int i = 1; i < nbclients; i++) {
-				Thread.sleep(timeBetweenLaunch * 1000);
-				clients.get(i).start();
-			}
+		if (graphiteServerAddress != null) {
+			final Graphite graphite = new Graphite(graphiteServerAddress);
+			final GraphiteReporter reporter = GraphiteReporter.forRegistry(registry).convertRatesTo(TimeUnit.SECONDS)
+					.convertDurationsTo(TimeUnit.MILLISECONDS).filter(MetricFilter.ALL).build(graphite);
+			reporter.start(graphitePollingPeriodInSec, TimeUnit.SECONDS);
 		}
 
-		int timebetween2lifetime = (int) (60000d / nbUpdatesByMinutes);
-		executor.scheduleAtFixedRate(new Runnable() {
+		// Plan the end of the test if needed
+		if (testDurationInSeconds != null)
+			executor.schedule(new Runnable() {
 
-			@Override
-			public void run() {
-				while (!clients.get(currentClientIndex).triggerUpdate(true, true)) {
+				@Override
+				public void run() {
+					for (BenchClient client : clients) {
+						client.stop(true);
+					}
+					testEnd.countDown();
+				}
+			}, testDurationInSeconds, TimeUnit.SECONDS);
+
+		// Start client
+		clients.get(0).start();
+		if (nbclients > 1) {
+			executor.submit(new Runnable() {
+
+				@Override
+				public void run() {
+					int timeBetweenLaunch = timeToStartAllClientInS / (nbclients - 1);
+					boolean interrupted = false;
+					for (int i = 1; i < nbclients && !interrupted; i++) {
+						try {
+							Thread.sleep(timeBetweenLaunch * 1000);
+						} catch (InterruptedException e) {
+							interrupted = true;
+						}
+						clients.get(i).start();
+					}
+				}
+			});
+		}
+
+		// Manually send update if needed
+		if (nbUpdatesByMinutes != null) {
+			int timebetween2lifetime = (int) (60000d / nbUpdatesByMinutes);
+			executor.scheduleAtFixedRate(new Runnable() {
+
+				@Override
+				public void run() {
+					while (!clients.get(currentClientIndex).triggerUpdate(true, true)) {
+						currentClientIndex = (currentClientIndex + 1) % nbclients;
+					}
 					currentClientIndex = (currentClientIndex + 1) % nbclients;
 				}
-				;
-				currentClientIndex = (currentClientIndex + 1) % nbclients;
-			}
-		}, timebetween2lifetime, timebetween2lifetime, TimeUnit.MILLISECONDS);
-
+			}, timebetween2lifetime, timebetween2lifetime, TimeUnit.MILLISECONDS);
+		}
 	}
 
 	public void waitToEnd() throws InterruptedException {
 		testEnd.await();
-		for (int i = 0; i < nbclients; i++) {
-			clients.get(i).destroy(false);
+	}
+
+	public boolean waitToEnd(long timeoutInSec) throws InterruptedException {
+		if (testEnd.await(timeoutInSec, TimeUnit.SECONDS)) {
+			for (int i = 0; i < nbclients; i++) {
+				clients.get(i).destroy(true);
+			}
+			return true;
+		} else {
+			return false;
 		}
+	}
+
+	public void destroy(boolean deregister) {
+		for (BenchClient client : clients) {
+			client.destroy(deregister);
+		}
+		executorForClients.shutdown();
 		executor.shutdown();
 	}
 
-	public String getReport() {
-		int nbRegistrationSuccess = 0;
-		int nbRegistrationFailure = 0;
-		List<BenchTestLeshanClient> clientWithRegFailure = new ArrayList<>();
-		int nbRegistrationTimeout = 0;
-		List<BenchTestLeshanClient> clientWithRegTimeout = new ArrayList<>();
-
-		int nbUpdateSuccess = 0;
-		int nbUpdateFailure = 0;
-		List<BenchTestLeshanClient> clientWithUpdateFailure = new ArrayList<>();
-		int nbUpdateTimeout = 0;
-		List<BenchTestLeshanClient> clientWithUpdateTimeout = new ArrayList<>();
-		int nbDeregistrationSuccess = 0;
-		int nbDeregistrationFailure = 0;
-		List<BenchTestLeshanClient> clientWithDeregFailure = new ArrayList<>();
-		int nbDeregistrationTimeout = 0;
-		List<BenchTestLeshanClient> clientWithDeregTimeout = new ArrayList<>();
-
-		for (BenchTestLeshanClient client : clients) {
-			nbRegistrationSuccess += client.getNbRegistrationSuccess();
-			nbRegistrationFailure += client.getNbRegistrationFailure();
-			nbRegistrationTimeout += client.getNbRegistrationTimeout();
-			nbUpdateSuccess += client.getNbUpdateSuccess();
-			nbUpdateFailure += client.getNbUpdateFailure();
-			nbUpdateTimeout += client.getNbUpdateTimeout();
-			nbDeregistrationSuccess += client.getNbDeregistrationSuccess();
-			nbDeregistrationFailure += client.getNbDeregistrationFailure();
-			nbDeregistrationTimeout += client.getNbDeregistrationTimeout();
-
-			if (client.getNbRegistrationFailure() > 0)
-				clientWithRegFailure.add(client);
-			if (client.getNbRegistrationTimeout() > 0)
-				clientWithRegTimeout.add(client);
-
-			if (client.getNbUpdateFailure() > 0)
-				clientWithUpdateFailure.add(client);
-			if (client.getNbUpdateTimeout() > 0)
-				clientWithUpdateTimeout.add(client);
-
-			if (client.getNbDeregistrationFailure() > 0)
-				clientWithDeregFailure.add(client);
-			if (client.getNbDeregistrationTimeout() > 0)
-				clientWithDeregTimeout.add(client);
-		}
-
-		StringBuilder b = new StringBuilder();
-		b.append("=======================================\n");
-		b.append("Registration : ");
-		b.append(nbRegistrationSuccess);
-		b.append(" success, ");
-		b.append(nbRegistrationFailure);
-		b.append(" failure( ");
-//		for (BenchTestLeshanClient client : clientWithRegFailure) {
-//			b.append(client.getSocketAddress().getPort());
-//			b.append(" ");
-//		}
-		b.append(")");
-		b.append(nbRegistrationTimeout);
-		b.append(" Timeout( ");
-//		for (BenchTestLeshanClient client : clientWithRegTimeout) {
-//			b.append(client.getSocketAddress().getPort());
-//			b.append(" ");
-//		}
-		b.append(").\n");
-
-		b.append("Update : ");
-		b.append(nbUpdateSuccess);
-		b.append(" success, ");
-		b.append(nbUpdateFailure);
-		b.append(" failure( ");
-//		for (BenchTestLeshanClient client : clientWithUpdateFailure) {
-//			b.append(client.getSocketAddress().getPort());
-//			b.append(" ");
-//		}
-		b.append(")");
-		b.append(nbUpdateTimeout);
-		b.append(" Timeout( ");
-//		for (BenchTestLeshanClient client : clientWithUpdateTimeout) {
-//			b.append(client.getSocketAddress().getPort());
-//			b.append(" ");
-//		}
-		b.append(").\n");
-
-		b.append("Deregistration : ");
-		b.append(nbDeregistrationSuccess);
-		b.append(" success, ");
-		b.append(nbDeregistrationFailure);
-		b.append(" failure( ");
-//		for (BenchTestLeshanClient client : clientWithDeregFailure) {
-//			b.append(client.getSocketAddress().getPort());
-//			b.append(" ");
-//		}
-		b.append(")");
-		b.append(nbDeregistrationTimeout);
-		b.append(" Timeout( ");
-//		for (BenchTestLeshanClient client : clientWithDeregTimeout) {
-//			b.append(client.getSocketAddress().getPort());
-//			b.append(" ");
-//		}
-		b.append(").\n");
-		b.append("=======================================\n");
-
-		executorForClients.shutdown();
-		
-		return b.toString();
+	public void logReport() {
+		logReporter.report();
 	}
 }
