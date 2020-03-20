@@ -42,9 +42,9 @@ public class ClientsLauncherCLI implements Callable<Integer> {
 	private int communicationPeriodInSeconds = 60;
 	@Option(names = { "-b", "--bootstrap" }, description = "Use this option to bootstrap instead of register.")
 	private boolean bootstrap = false;
-	@Option(names = { "-r", "--reconnect-on-update" }, description = "Try to resume connection when it's possible.")
+	@Option(names = { "-r", "--reconnect-on-update" }, description = "Reconnect/rehandshake on update.")
 	private boolean reconnectOnUpdate = false;
-	@Option(names = { "-f", "--no-resume" }, description = "Do not try to resume session always do a full handshake.")
+	@Option(names = { "-f", "--no-resume" }, description = "Force reconnect/rehandshake on update.")
 	private boolean noSessionResumption = false;
 	@Option(names = { "-d", "--duration" }, description = "Duration of the simulation in seconds.\nDefault: no limit.")
 	private Integer durationInSeconds;

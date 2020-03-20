@@ -14,7 +14,7 @@
         <dependency>
             <groupId>org.eclipse.leshan</groupId>
             <artifactId>leshan-client-cf</artifactId>
-            <version>1.0.0-SNAPSHOT</version>
+            <version>1.0.0-RC1</version>
         </dependency>
         <dependency>
             <groupId>info.picocli</groupId>

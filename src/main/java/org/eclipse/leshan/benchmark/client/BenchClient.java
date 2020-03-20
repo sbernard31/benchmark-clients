@@ -27,6 +27,10 @@ import org.eclipse.leshan.core.model.StaticModel;
 import org.eclipse.leshan.core.node.codec.DefaultLwM2mNodeDecoder;
 import org.eclipse.leshan.core.node.codec.DefaultLwM2mNodeEncoder;
 import org.eclipse.leshan.core.request.BindingMode;
+import org.eclipse.leshan.core.request.BootstrapRequest;
+import org.eclipse.leshan.core.request.DeregisterRequest;
+import org.eclipse.leshan.core.request.RegisterRequest;
+import org.eclipse.leshan.core.request.UpdateRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -67,24 +71,18 @@ public class BenchClient {
 			long lifetimeInSec, MetricRegistry metricRegistry) {
 
 		// register metrics
-		bootstrapSuccess = registerIfNotExist(metricRegistry, "leshan.bench.client.bootstrap.success",
-				new Counter());
-		bootstrapFailure = registerIfNotExist(metricRegistry, "leshan.bench.client.bootstrap.failure",
-				new Counter());
-		bootstrapTimeout = registerIfNotExist(metricRegistry, "leshan.bench.client.bootstrap.timeout",
-				new Counter());
+		bootstrapSuccess = registerIfNotExist(metricRegistry, "leshan.bench.client.bootstrap.success", new Counter());
+		bootstrapFailure = registerIfNotExist(metricRegistry, "leshan.bench.client.bootstrap.failure", new Counter());
+		bootstrapTimeout = registerIfNotExist(metricRegistry, "leshan.bench.client.bootstrap.timeout", new Counter());
 		registrationSuccess = registerIfNotExist(metricRegistry, "leshan.bench.client.registration.success",
 				new Counter());
 		registrationFailure = registerIfNotExist(metricRegistry, "leshan.bench.client.registration.failure",
 				new Counter());
 		registrationTimeout = registerIfNotExist(metricRegistry, "leshan.bench.client.registration.timeout",
 				new Counter());
-		updateSuccess = registerIfNotExist(metricRegistry, "leshan.bench.client.update.success",
-				new Counter());
-		updateFailure = registerIfNotExist(metricRegistry, "leshan.bench.client.update.failure",
-				new Counter());
-		updateTimeout = registerIfNotExist(metricRegistry, "leshan.bench.client.update.timeout",
-				new Counter());
+		updateSuccess = registerIfNotExist(metricRegistry, "leshan.bench.client.update.success", new Counter());
+		updateFailure = registerIfNotExist(metricRegistry, "leshan.bench.client.update.failure", new Counter());
+		updateTimeout = registerIfNotExist(metricRegistry, "leshan.bench.client.update.timeout", new Counter());
 		deregistrationSuccess = registerIfNotExist(metricRegistry, "leshan.bench.client.deregistration.success",
 				new Counter());
 		deregistrationFailure = registerIfNotExist(metricRegistry, "leshan.bench.client.deregistration.failure",
@@ -130,18 +128,18 @@ public class BenchClient {
 		client.addObserver(new LwM2mClientObserverAdapter() {
 
 			@Override
-			public void onUpdateTimeout(org.eclipse.leshan.client.servers.Server server) {
+			public void onUpdateTimeout(org.eclipse.leshan.client.servers.Server server, UpdateRequest request) {
 				updateTimeout.inc();
 			}
 
 			@Override
-			public void onUpdateSuccess(org.eclipse.leshan.client.servers.Server server, String registrationID) {
+			public void onUpdateSuccess(org.eclipse.leshan.client.servers.Server server, UpdateRequest request) {
 				updateSuccess.inc();
 			}
 
 			@Override
-			public void onUpdateFailure(org.eclipse.leshan.client.servers.Server server, ResponseCode responseCode,
-					String errorMessage, Exception e) {
+			public void onUpdateFailure(org.eclipse.leshan.client.servers.Server server, UpdateRequest request,
+					ResponseCode responseCode, String errorMessage, Exception e) {
 				updateFailure.inc();
 				if (e != null) {
 					if (LOG.isTraceEnabled()) {
@@ -155,17 +153,19 @@ public class BenchClient {
 			}
 
 			@Override
-			public void onRegistrationTimeout(org.eclipse.leshan.client.servers.Server server) {
+			public void onRegistrationTimeout(org.eclipse.leshan.client.servers.Server server,
+					RegisterRequest request) {
 				registrationTimeout.inc();
 			}
 
 			@Override
-			public void onRegistrationSuccess(org.eclipse.leshan.client.servers.Server server, String registrationID) {
+			public void onRegistrationSuccess(org.eclipse.leshan.client.servers.Server server, RegisterRequest request,
+					String registrationID) {
 				registrationSuccess.inc();
 			}
 
 			@Override
-			public void onRegistrationFailure(org.eclipse.leshan.client.servers.Server server,
+			public void onRegistrationFailure(org.eclipse.leshan.client.servers.Server server, RegisterRequest request,
 					ResponseCode responseCode, String errorMessage, Exception e) {
 				registrationFailure.inc();
 				if (e != null) {
@@ -180,19 +180,20 @@ public class BenchClient {
 			}
 
 			@Override
-			public void onDeregistrationTimeout(org.eclipse.leshan.client.servers.Server server) {
+			public void onDeregistrationTimeout(org.eclipse.leshan.client.servers.Server server,
+					DeregisterRequest request) {
 				deregistrationTimeout.inc();
 			}
 
 			@Override
 			public void onDeregistrationSuccess(org.eclipse.leshan.client.servers.Server server,
-					String registrationID) {
+					DeregisterRequest request) {
 				deregistrationSuccess.inc();
 			}
 
 			@Override
 			public void onDeregistrationFailure(org.eclipse.leshan.client.servers.Server server,
-					ResponseCode responseCode, String errorMessage, Exception e) {
+					DeregisterRequest request, ResponseCode responseCode, String errorMessage, Exception e) {
 				deregistrationFailure.inc();
 				if (e != null) {
 					if (LOG.isTraceEnabled()) {
@@ -206,18 +207,20 @@ public class BenchClient {
 			}
 
 			@Override
-			public void onBootstrapTimeout(org.eclipse.leshan.client.servers.Server bsserver) {
+			public void onBootstrapTimeout(org.eclipse.leshan.client.servers.Server bsserver,
+					BootstrapRequest request) {
 				bootstrapTimeout.inc();
 			}
 
 			@Override
-			public void onBootstrapSuccess(org.eclipse.leshan.client.servers.Server bsserver) {
+			public void onBootstrapSuccess(org.eclipse.leshan.client.servers.Server bsserver,
+					BootstrapRequest request) {
 				bootstrapSuccess.inc();
 			}
 
 			@Override
-			public void onBootstrapFailure(org.eclipse.leshan.client.servers.Server bsserver, ResponseCode responseCode,
-					String errorMessage, Exception e) {
+			public void onBootstrapFailure(org.eclipse.leshan.client.servers.Server bsserver, BootstrapRequest request,
+					ResponseCode responseCode, String errorMessage, Exception e) {
 				bootstrapFailure.inc();
 				if (e != null) {
 					if (LOG.isTraceEnabled()) {
