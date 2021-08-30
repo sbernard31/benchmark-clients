@@ -13,8 +13,8 @@ import java.util.concurrent.TimeUnit;
 
 import org.eclipse.leshan.client.californium.LeshanClientBuilder;
 import org.eclipse.leshan.client.engine.DefaultRegistrationEngineFactory;
-import org.eclipse.leshan.util.Hex;
-import org.eclipse.leshan.util.NamedThreadFactory;
+import org.eclipse.leshan.core.util.Hex;
+import org.eclipse.leshan.core.util.NamedThreadFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
