@@ -1,7 +1,7 @@
 package org.eclipse.leshan.benchmark.client;
 
-import static org.eclipse.leshan.LwM2mId.SECURITY;
-import static org.eclipse.leshan.LwM2mId.SERVER;
+import static org.eclipse.leshan.core.LwM2mId.SECURITY;
+import static org.eclipse.leshan.core.LwM2mId.SERVER;
 import static org.eclipse.leshan.client.object.Security.noSec;
 import static org.eclipse.leshan.client.object.Security.noSecBootstap;
 import static org.eclipse.leshan.client.object.Security.psk;
@@ -9,17 +9,20 @@ import static org.eclipse.leshan.client.object.Security.pskBootstrap;
 
 import java.net.InetSocketAddress;
 import java.util.List;
+import java.util.Map;
 
 import org.eclipse.californium.core.network.CoapEndpoint;
 import org.eclipse.californium.core.network.config.NetworkConfig;
 import org.eclipse.californium.scandium.DTLSConnector;
-import org.eclipse.leshan.ResponseCode;
+
 import org.eclipse.leshan.client.californium.LeshanClient;
 import org.eclipse.leshan.client.californium.LeshanClientBuilder;
 import org.eclipse.leshan.client.object.Server;
 import org.eclipse.leshan.client.observer.LwM2mClientObserverAdapter;
 import org.eclipse.leshan.client.resource.LwM2mObjectEnabler;
 import org.eclipse.leshan.client.resource.ObjectsInitializer;
+import org.eclipse.leshan.client.servers.ServerIdentity;
+import org.eclipse.leshan.core.ResponseCode;
 import org.eclipse.leshan.core.model.LwM2mModel;
 import org.eclipse.leshan.core.model.ObjectLoader;
 import org.eclipse.leshan.core.model.ObjectModel;
@@ -128,17 +131,17 @@ public class BenchClient {
 		client.addObserver(new LwM2mClientObserverAdapter() {
 
 			@Override
-			public void onUpdateTimeout(org.eclipse.leshan.client.servers.Server server, UpdateRequest request) {
+			public void onUpdateTimeout(ServerIdentity server, UpdateRequest request) {
 				updateTimeout.inc();
 			}
 
 			@Override
-			public void onUpdateSuccess(org.eclipse.leshan.client.servers.Server server, UpdateRequest request) {
+			public void onUpdateSuccess(ServerIdentity server, UpdateRequest request) {
 				updateSuccess.inc();
 			}
 
 			@Override
-			public void onUpdateFailure(org.eclipse.leshan.client.servers.Server server, UpdateRequest request,
+			public void onUpdateFailure(ServerIdentity server, UpdateRequest request,
 					ResponseCode responseCode, String errorMessage, Exception e) {
 				updateFailure.inc();
 				if (e != null) {
@@ -153,19 +156,19 @@ public class BenchClient {
 			}
 
 			@Override
-			public void onRegistrationTimeout(org.eclipse.leshan.client.servers.Server server,
+			public void onRegistrationTimeout(ServerIdentity server,
 					RegisterRequest request) {
 				registrationTimeout.inc();
 			}
 
 			@Override
-			public void onRegistrationSuccess(org.eclipse.leshan.client.servers.Server server, RegisterRequest request,
+			public void onRegistrationSuccess(ServerIdentity server, RegisterRequest request,
 					String registrationID) {
 				registrationSuccess.inc();
 			}
 
 			@Override
-			public void onRegistrationFailure(org.eclipse.leshan.client.servers.Server server, RegisterRequest request,
+			public void onRegistrationFailure(ServerIdentity server, RegisterRequest request,
 					ResponseCode responseCode, String errorMessage, Exception e) {
 				registrationFailure.inc();
 				if (e != null) {
@@ -180,19 +183,19 @@ public class BenchClient {
 			}
 
 			@Override
-			public void onDeregistrationTimeout(org.eclipse.leshan.client.servers.Server server,
+			public void onDeregistrationTimeout(ServerIdentity server,
 					DeregisterRequest request) {
 				deregistrationTimeout.inc();
 			}
 
 			@Override
-			public void onDeregistrationSuccess(org.eclipse.leshan.client.servers.Server server,
+			public void onDeregistrationSuccess(ServerIdentity server,
 					DeregisterRequest request) {
 				deregistrationSuccess.inc();
 			}
 
 			@Override
-			public void onDeregistrationFailure(org.eclipse.leshan.client.servers.Server server,
+			public void onDeregistrationFailure(ServerIdentity server,
 					DeregisterRequest request, ResponseCode responseCode, String errorMessage, Exception e) {
 				deregistrationFailure.inc();
 				if (e != null) {
@@ -207,19 +210,19 @@ public class BenchClient {
 			}
 
 			@Override
-			public void onBootstrapTimeout(org.eclipse.leshan.client.servers.Server bsserver,
+			public void onBootstrapTimeout(ServerIdentity bsserver,
 					BootstrapRequest request) {
 				bootstrapTimeout.inc();
 			}
 
 			@Override
-			public void onBootstrapSuccess(org.eclipse.leshan.client.servers.Server bsserver,
+			public void onBootstrapSuccess(ServerIdentity bsserver,
 					BootstrapRequest request) {
 				bootstrapSuccess.inc();
 			}
 
 			@Override
-			public void onBootstrapFailure(org.eclipse.leshan.client.servers.Server bsserver, BootstrapRequest request,
+			public void onBootstrapFailure(ServerIdentity bsserver, BootstrapRequest request,
 					ResponseCode responseCode, String errorMessage, Exception e) {
 				bootstrapFailure.inc();
 				if (e != null) {
@@ -267,11 +270,11 @@ public class BenchClient {
 	}
 
 	public InetSocketAddress getSocketAddress() {
-		return client.getAddress();
+		return client.getAddress(getCurrentRegisteredServer());
 	}
 
 	public boolean triggerUpdate(boolean rehandshake, boolean abbreviated) {
-		if (client.getRegistrationId() != null) {
+		if (getCurrentRegisteredServer() != null) {
 			if (rehandshake) {
 				CoapEndpoint endpoint = (CoapEndpoint) client.coap().getServer().getEndpoint(getSocketAddress());
 				if (endpoint.getConnector() instanceof DTLSConnector) {
@@ -288,6 +291,13 @@ public class BenchClient {
 			return false;
 		}
 	}
+	
+	public ServerIdentity getCurrentRegisteredServer() {
+        Map<String, ServerIdentity> registeredServers = client.getRegisteredServers();
+        if (registeredServers != null && !registeredServers.isEmpty())
+            return registeredServers.values().iterator().next();
+        return null;
+    }
 
 	public void destroy(boolean deregister) {
 		client.destroy(deregister);
