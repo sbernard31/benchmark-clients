@@ -1,45 +1,27 @@
 package org.eclipse.leshan.benchmark.client;
 
-import static org.eclipse.leshan.core.LwM2mId.SECURITY;
-import static org.eclipse.leshan.core.LwM2mId.SERVER;
-import static org.eclipse.leshan.client.object.Security.noSec;
-import static org.eclipse.leshan.client.object.Security.noSecBootstap;
-import static org.eclipse.leshan.client.object.Security.psk;
-import static org.eclipse.leshan.client.object.Security.pskBootstrap;
+import static org.eclipse.leshan.client.object.Security.*;
+import static org.eclipse.leshan.core.LwM2mId.*;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
+import org.eclipse.californium.core.config.CoapConfig;
 import org.eclipse.californium.core.network.CoapEndpoint;
-import org.eclipse.californium.core.network.config.NetworkConfig;
+import org.eclipse.californium.elements.config.Configuration;
 import org.eclipse.californium.scandium.DTLSConnector;
-
-import org.eclipse.leshan.client.californium.LeshanClient;
-import org.eclipse.leshan.client.californium.LeshanClientBuilder;
-import org.eclipse.leshan.client.object.Server;
+import org.eclipse.leshan.client.californium.*;
+import org.eclipse.leshan.client.object.*;
 import org.eclipse.leshan.client.observer.LwM2mClientObserverAdapter;
-import org.eclipse.leshan.client.resource.LwM2mObjectEnabler;
 import org.eclipse.leshan.client.resource.ObjectsInitializer;
 import org.eclipse.leshan.client.servers.ServerIdentity;
 import org.eclipse.leshan.core.ResponseCode;
-import org.eclipse.leshan.core.model.LwM2mModel;
-import org.eclipse.leshan.core.model.ObjectLoader;
-import org.eclipse.leshan.core.model.ObjectModel;
-import org.eclipse.leshan.core.model.StaticModel;
-import org.eclipse.leshan.core.node.codec.DefaultLwM2mNodeDecoder;
-import org.eclipse.leshan.core.node.codec.DefaultLwM2mNodeEncoder;
-import org.eclipse.leshan.core.request.BindingMode;
-import org.eclipse.leshan.core.request.BootstrapRequest;
-import org.eclipse.leshan.core.request.DeregisterRequest;
-import org.eclipse.leshan.core.request.RegisterRequest;
-import org.eclipse.leshan.core.request.UpdateRequest;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.eclipse.leshan.core.model.*;
+import org.eclipse.leshan.core.request.*;
+import org.slf4j.*;
 
-import com.codahale.metrics.Counter;
-import com.codahale.metrics.Metric;
-import com.codahale.metrics.MetricRegistry;
+import com.codahale.metrics.*;
 
 public class BenchClient {
 
@@ -60,7 +42,12 @@ public class BenchClient {
 
 	static {
 		List<ObjectModel> objectModels = ObjectLoader.loadDefault();
-		objectModels.addAll(ObjectLoader.loadDdfResources(new String[] { "/LWM2M_Software_Management-v1_0.xml" }));
+		try {
+			objectModels.addAll(ObjectLoader.loadDdfResources(new String[] { "/LWM2M_Software_Management-v1_0.xml" }));
+		} catch (InvalidDDFFileException | IOException | InvalidModelException e) {
+			e.printStackTrace();
+			System.exit(-1);
+		}
 		model = new StaticModel(objectModels);
 	}
 
@@ -104,27 +91,29 @@ public class BenchClient {
 				initializer.setClassForObject(SERVER, Server.class);
 			} else {
 				initializer.setInstancesForObject(SECURITY, psk(serverURI, 123, pskId.getBytes(), pskKey));
-				initializer.setInstancesForObject(SERVER, new Server(123, lifetimeInSec, BindingMode.U, false));
+				initializer.setInstancesForObject(SERVER, new Server(123, lifetimeInSec));
 			}
 		} else {
 			if (bootstrap) {
-				initializer.setInstancesForObject(SECURITY, noSecBootstap(serverURI));
+				initializer.setInstancesForObject(SECURITY, noSecBootstrap(serverURI));
 				initializer.setClassForObject(SERVER, Server.class);
 			} else {
+				System.err.println("no sec");
 				initializer.setInstancesForObject(SECURITY, noSec(serverURI, 123));
-				initializer.setInstancesForObject(SERVER, new Server(123, lifetimeInSec, BindingMode.U, false));
+				initializer.setInstancesForObject(SERVER, new Server(123, lifetimeInSec));
 			}
 
 		}
+		initializer.setInstancesForObject(DEVICE, new Device("leshan","benchmark","1234567890"));
 		initializer.setDummyInstancesForObject(5, 9);
-		List<LwM2mObjectEnabler> objects = initializer.createAll();
-		builder.setObjects(objects);
 
-		builder.setEncoder(new DefaultLwM2mNodeEncoder(true));
-		builder.setDecoder(new DefaultLwM2mNodeDecoder(true));
+		builder.setObjects(initializer.createAll());
 
-		NetworkConfig networkConfig = LeshanClientBuilder.createDefaultNetworkConfig();
-		networkConfig.set(NetworkConfig.Keys.PREFERRED_BLOCK_SIZE, 1024);
+		// builder.setEncoder(new DefaultLwM2mNodeEncoder(true));
+		// builder.setDecoder(new DefaultLwM2mNodeDecoder(true));
+		Configuration cfConfig = LeshanClientBuilder.createDefaultCoapConfiguration();
+		cfConfig.set(CoapConfig.PREFERRED_BLOCK_SIZE, 1024);
+		builder.setCoapConfig(cfConfig);
 
 		client = builder.build();
 
@@ -141,8 +130,8 @@ public class BenchClient {
 			}
 
 			@Override
-			public void onUpdateFailure(ServerIdentity server, UpdateRequest request,
-					ResponseCode responseCode, String errorMessage, Exception e) {
+			public void onUpdateFailure(ServerIdentity server, UpdateRequest request, ResponseCode responseCode,
+					String errorMessage, Exception e) {
 				updateFailure.inc();
 				if (e != null) {
 					if (LOG.isTraceEnabled()) {
@@ -156,20 +145,18 @@ public class BenchClient {
 			}
 
 			@Override
-			public void onRegistrationTimeout(ServerIdentity server,
-					RegisterRequest request) {
+			public void onRegistrationTimeout(ServerIdentity server, RegisterRequest request) {
 				registrationTimeout.inc();
 			}
 
 			@Override
-			public void onRegistrationSuccess(ServerIdentity server, RegisterRequest request,
-					String registrationID) {
+			public void onRegistrationSuccess(ServerIdentity server, RegisterRequest request, String registrationID) {
 				registrationSuccess.inc();
 			}
 
 			@Override
-			public void onRegistrationFailure(ServerIdentity server, RegisterRequest request,
-					ResponseCode responseCode, String errorMessage, Exception e) {
+			public void onRegistrationFailure(ServerIdentity server, RegisterRequest request, ResponseCode responseCode,
+					String errorMessage, Exception e) {
 				registrationFailure.inc();
 				if (e != null) {
 					if (LOG.isTraceEnabled()) {
@@ -183,20 +170,18 @@ public class BenchClient {
 			}
 
 			@Override
-			public void onDeregistrationTimeout(ServerIdentity server,
-					DeregisterRequest request) {
+			public void onDeregistrationTimeout(ServerIdentity server, DeregisterRequest request) {
 				deregistrationTimeout.inc();
 			}
 
 			@Override
-			public void onDeregistrationSuccess(ServerIdentity server,
-					DeregisterRequest request) {
+			public void onDeregistrationSuccess(ServerIdentity server, DeregisterRequest request) {
 				deregistrationSuccess.inc();
 			}
 
 			@Override
-			public void onDeregistrationFailure(ServerIdentity server,
-					DeregisterRequest request, ResponseCode responseCode, String errorMessage, Exception e) {
+			public void onDeregistrationFailure(ServerIdentity server, DeregisterRequest request,
+					ResponseCode responseCode, String errorMessage, Exception e) {
 				deregistrationFailure.inc();
 				if (e != null) {
 					if (LOG.isTraceEnabled()) {
@@ -210,20 +195,18 @@ public class BenchClient {
 			}
 
 			@Override
-			public void onBootstrapTimeout(ServerIdentity bsserver,
-					BootstrapRequest request) {
+			public void onBootstrapTimeout(ServerIdentity bsserver, BootstrapRequest request) {
 				bootstrapTimeout.inc();
 			}
 
 			@Override
-			public void onBootstrapSuccess(ServerIdentity bsserver,
-					BootstrapRequest request) {
+			public void onBootstrapSuccess(ServerIdentity bsserver, BootstrapRequest request) {
 				bootstrapSuccess.inc();
 			}
 
 			@Override
-			public void onBootstrapFailure(ServerIdentity bsserver, BootstrapRequest request,
-					ResponseCode responseCode, String errorMessage, Exception e) {
+			public void onBootstrapFailure(ServerIdentity bsserver, BootstrapRequest request, ResponseCode responseCode,
+					String errorMessage, Exception e) {
 				bootstrapFailure.inc();
 				if (e != null) {
 					if (LOG.isTraceEnabled()) {
@@ -291,13 +274,13 @@ public class BenchClient {
 			return false;
 		}
 	}
-	
+
 	public ServerIdentity getCurrentRegisteredServer() {
-        Map<String, ServerIdentity> registeredServers = client.getRegisteredServers();
-        if (registeredServers != null && !registeredServers.isEmpty())
-            return registeredServers.values().iterator().next();
-        return null;
-    }
+		Map<String, ServerIdentity> registeredServers = client.getRegisteredServers();
+		if (registeredServers != null && !registeredServers.isEmpty())
+			return registeredServers.values().iterator().next();
+		return null;
+	}
 
 	public void destroy(boolean deregister) {
 		client.destroy(deregister);
