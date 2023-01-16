@@ -12,7 +12,7 @@ import org.eclipse.californium.core.network.CoapEndpoint;
 import org.eclipse.californium.elements.config.Configuration;
 import org.eclipse.californium.scandium.DTLSConnector;
 import org.eclipse.leshan.client.californium.*;
-import org.eclipse.leshan.client.object.Server;
+import org.eclipse.leshan.client.object.*;
 import org.eclipse.leshan.client.observer.LwM2mClientObserverAdapter;
 import org.eclipse.leshan.client.resource.ObjectsInitializer;
 import org.eclipse.leshan.client.servers.ServerIdentity;
@@ -104,6 +104,7 @@ public class BenchClient {
 			}
 
 		}
+		initializer.setInstancesForObject(DEVICE, new Device("leshan","benchmark","1234567890"));
 		initializer.setDummyInstancesForObject(5, 9);
 
 		builder.setObjects(initializer.createAll());
